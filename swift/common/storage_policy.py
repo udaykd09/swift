@@ -29,6 +29,7 @@ VALID_CHARS = '-' + string.ascii_letters + string.digits
 
 DEFAULT_POLICY_TYPE = REPL_POLICY = 'replication'
 EC_POLICY = 'erasure_coding'
+ENCRYPTION_POLICY = 'encryption'
 
 DEFAULT_EC_OBJECT_SEGMENT_SIZE = 1048576
 
@@ -594,6 +595,12 @@ class ECStoragePolicy(BaseStoragePolicy):
         self.object_ring = Ring(
             swift_dir, ring_name=self.ring_name,
             validation_hook=validate_ring_data)
+
+
+@BaseStoragePolicy.register(ENCRYPTION_POLICY)
+class EncryptionStoragePolicy(BaseStoragePolicy):
+    
+    pass
 
 
 class StoragePolicyCollection(object):

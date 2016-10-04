@@ -69,7 +69,8 @@ from swift.common.exceptions import DiskFileQuarantined, DiskFileNotExist, \
 from swift.common.swob import multi_range_iterator
 from swift.common.storage_policy import (
     get_policy_string, split_policy_string, PolicyError, POLICIES,
-    REPL_POLICY, EC_POLICY)
+    REPL_POLICY, EC_POLICY, ENCRYPTION_POLICY)
+from swift.obj.encryptor import CryptoDriver
 from functools import partial
 
 
@@ -1893,6 +1894,7 @@ class BaseDiskFile(object):
         self._fp = None
         self._quarantined_dir = None
         self._content_length = None
+        self._encrypted_length = 0
         if _datadir:
             self._datadir = _datadir
         else:
@@ -3054,3 +3056,122 @@ class ECDiskFileManager(BaseDiskFileManager):
 
         hash_per_fi = self._hash_suffix_dir(path, reclaim_age)
         return dict((fi, md5.hexdigest()) for fi, md5 in hash_per_fi.items())
+
+
+class EncryptionDiskFileReader(BaseDiskFileReader):
+    
+    def __iter__(self):
+        """Returns an iterator over the data file with decryption."""
+        try:
+            dropped_cache = 0
+            self._bytes_read = 0
+            self._started_at_0 = False
+            self._read_to_eof = False
+            if self._fp.tell() == 0:
+                self._started_at_0 = True
+                self._iter_etag = hashlib.md5()
+            while True:
+                chunk = self._fp.read(self._disk_chunk_size)
+                if chunk:
+                    if self._iter_etag:
+                        self._iter_etag.update(chunk)
+                    self._bytes_read += len(chunk)
+                    if self._bytes_read - dropped_cache > DROP_CACHE_WINDOW:
+                        self._drop_cache(self._fp.fileno(), dropped_cache,
+                                         self._bytes_read - dropped_cache)
+                        dropped_cache = self._bytes_read
+                    encryption_context = self.manager.get_encryption_context()
+                    crypto_driver = self.manager.get_crypto_driver()
+                    chunk = crypto_driver.decrypt(encryption_context,
+                                                  chunk)
+                    yield chunk
+                else:
+                    self._read_to_eof = True
+                    self._drop_cache(self._fp.fileno(), dropped_cache,
+                                     self._bytes_read - dropped_cache)
+                    break
+        finally:
+            if not self._suppress_file_closing:
+                self.close()
+        
+
+class EncryptionDiskFileWriter(BaseDiskFileWriter):
+    
+    def write(self, chunk):
+        encryption_context = self.manager.get_encryption_context()
+        crypto_driver = self.manager.get_crypto_driver()
+        orig_size = len(chunk)
+        # Replace the original chunk with encrypted chunk
+        chunk = crypto_driver.encrypt(encryption_context, chunk)
+        self.manager.set_enryption_length(len(chunk))
+        uploaded_size = super(EncryptionDiskFileWriter, self).write(chunk)
+        # Write the encrypted chunk
+        return orig_size
+
+
+class EncryptionDiskFile(BaseDiskFile):
+    
+    reader_cls = EncryptionDiskFileReader
+    writer_cls = EncryptionDiskFileWriter
+    
+    def reader(self, keep_cache=False,
+               _quarantine_hook=lambda m: None):
+        """
+        Return a :class:`swift.common.swob.Response` class compatible
+        "`app_iter`" object as defined by
+        :class:`swift.obj.diskfile.DiskFileReader`.
+
+        For this implementation, the responsibility of closing the open file
+        is passed to the :class:`swift.obj.diskfile.DiskFileReader` object.
+
+        :param keep_cache: caller's preference for keeping data read in the
+                           OS buffer cache
+        :param _quarantine_hook: 1-arg callable called when obj quarantined;
+                                 the arg is the reason for quarantine.
+                                 Default is to ignore it.
+                                 Not needed by the REST layer.
+        :returns: a :class:`swift.obj.diskfile.DiskFileReader` object
+        """
+        dr = self.reader_cls(
+            self._fp, self._data_file, int(self._metadata['Content-Length']),
+            self._metadata['Original-ETag'], self._disk_chunk_size,
+            self._manager.keep_cache_size, self._device_path, self._logger,
+            use_splice=self._use_splice, quarantine_hook=_quarantine_hook,
+            pipe_size=self._pipe_size, diskfile=self, keep_cache=keep_cache)
+        # At this point the reader object is now responsible for closing
+        # the file pointer.
+        self._fp = None
+        return dr
+    
+    # FIXME: Uday - Override the verification at GET 
+    # as encrypted size and metadata size do not match
+    def _verify_data_file(self, data_file, fp):
+        pass
+    
+    def set_encrypted_length(self, encrypted_length):
+        self._encrypted_size = encrypted_length
+    
+    def get_encrypted_length(self):
+        return self._encrypted_size
+        
+
+@DiskFileRouter.register(ENCRYPTION_POLICY)
+class EncyptionDiskFileManager(BaseDiskFileManager):
+    
+    diskfile_cls = EncryptionDiskFile
+    def __init__(self, *args, **kwargs):
+        super(EncyptionDiskFileManager, self).__init__(*args, **kwargs)
+        crypto_driver = conf.get('crypto_driver',
+                                 'swift.obj.encryptor.DummyDriver')
+        self.crypto_driver = create_instance(crypto_driver, CryptoDriver, conf)
+        self.encryption_context = self.crypto_driver.encryption_context()
+        self.origin_disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
+        self.disk_chunk_size = self.crypto_driver.encrypted_chunk_size(
+            encryption_context, self.origin_disk_chunk_size)
+        
+    def get_encryption_context(self):
+        return self.encryption_context
+    
+    def get_crypto_driver(self):
+        return self.crypto_driver
+    

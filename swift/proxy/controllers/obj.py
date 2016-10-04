@@ -63,7 +63,7 @@ from swift.common.http import (
     HTTP_PRECONDITION_FAILED, HTTP_CONFLICT, HTTP_UNPROCESSABLE_ENTITY,
     HTTP_REQUESTED_RANGE_NOT_SATISFIABLE)
 from swift.common.storage_policy import (POLICIES, REPL_POLICY, EC_POLICY,
-                                         ECDriverError, PolicyError)
+                                         ENCRYPTION_POLICY, ECDriverError, PolicyError)
 from swift.proxy.controllers.base import Controller, delay_denial, \
     cors_validation, ResumingGetter
 from swift.common.swob import HTTPAccepted, HTTPBadRequest, HTTPNotFound, \
@@ -2645,3 +2645,9 @@ class ECObjectController(BaseObjectController):
         resp.last_modified = math.ceil(
             float(Timestamp(req.headers['X-Timestamp'])))
         return resp
+
+
+@ObjectControllerRouter.register(ENCRYPTION_POLICY)
+class EncryptionObjectController(BaseStoragePolicy):
+    
+    pass

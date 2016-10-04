@@ -120,6 +120,16 @@ class ObjectController(BaseStorageServer):
         """
         super(ObjectController, self).__init__(conf)
         self.logger = logger or get_logger(conf, log_route='object-server')
+        
+        """ SSDS : Encryption Variables 
+        crypto_driver = conf.get('crypto_driver',
+                                 'swift.obj.encryptor.DummyDriver')
+        self.crypto_driver = create_instance(crypto_driver, CryptoDriver, conf)
+        encryption_context = self.crypto_driver.encryption_context()
+        self.origin_disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
+        self.disk_chunk_size = self.crypto_driver.encrypted_chunk_size(
+            encryption_context, self.origin_disk_chunk_size)
+        """
         self.node_timeout = float(conf.get('node_timeout', 3))
         self.container_update_timeout = float(
             conf.get('container_update_timeout', 1))
@@ -708,6 +718,7 @@ class ObjectController(BaseStorageServer):
         orig_delete_at = int(orig_metadata.get('X-Delete-At') or 0)
         upload_expiration = time.time() + self.max_upload_time
         etag = md5()
+        etag_orig = md5()
         elapsed_time = 0
         try:
             with disk_file.create(size=fsize) as writer:
@@ -761,11 +772,13 @@ class ObjectController(BaseStorageServer):
                 try:
                     for chunk in iter(timeout_reader, ''):
                         start_time = time.time()
+                        etag_orig.update(chunk)
                         if start_time > upload_expiration:
                             self.logger.increment('PUT.timeouts')
                             return HTTPRequestTimeout(request=request)
                         etag.update(chunk)
                         upload_size = writer.write(chunk)
+                        encryted_size = disk_file.get_encrypted_length()
                         elapsed_time += time.time() - start_time
                 except ChunkReadError:
                     return HTTPClientDisconnect(request=request)
@@ -786,13 +799,16 @@ class ObjectController(BaseStorageServer):
                 request_etag = (footer_meta.get('etag') or
                                 request.headers.get('etag', '')).lower()
                 etag = etag.hexdigest()
-                if request_etag and request_etag != etag:
+                etag_orig = etag_orig.hexdigest()
+                if request_etag and request_etag != etag_orig:
                     return HTTPUnprocessableEntity(request=request)
                 metadata = {
                     'X-Timestamp': request.timestamp.internal,
                     'Content-Type': request.headers['content-type'],
-                    'ETag': etag,
+                    'Etag': etag,
+                    'Original-ETag': etag_orig,
                     'Content-Length': str(upload_size),
+                    'Encrypted-Length': str(encrypted_size)
                 }
                 metadata.update(val for val in request.headers.items()
                                 if (is_sys_or_user_meta('object', val[0]) or
@@ -853,7 +869,7 @@ class ObjectController(BaseStorageServer):
             'x-size': metadata['Content-Length'],
             'x-content-type': metadata['Content-Type'],
             'x-timestamp': metadata['X-Timestamp'],
-            'x-etag': metadata['ETag']})
+            'x-etag': metadata['Original-ETag']})
         # apply any container update header overrides sent with request
         self._check_container_override(update_headers, request.headers,
                                        footer_meta)
@@ -861,7 +877,7 @@ class ObjectController(BaseStorageServer):
             'PUT', account, container, obj, request,
             update_headers,
             device, policy)
-        return HTTPCreated(request=request, etag=etag)
+        return HTTPCreated(request=request, etag=etag_orig)
 
     @public
     @timing_stats()
@@ -897,7 +913,7 @@ class ObjectController(BaseStorageServer):
                             is_object_transient_sysmeta(key) or
                             key.lower() in self.allowed_headers):
                         response.headers[key] = value
-                response.etag = metadata['ETag']
+                response.etag = metadata['Original-ETag']
                 response.last_modified = math.ceil(float(file_x_ts))
                 response.content_length = obj_size
                 try:
