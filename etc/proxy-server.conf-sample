@@ -120,7 +120,7 @@ use = egg:swift#proxy
 # Timeouts from these requests can be recovered from so setting this to
 # something lower than node_timeout would provide quicker error recovery
 # while allowing for a longer timeout for non-recoverable requests (PUTs).
-# Defaults to node_timeout, should be overriden if node_timeout is set to a
+# Defaults to node_timeout, should be overridden if node_timeout is set to a
 # high number to prevent client timeouts from firing before the proxy server
 # has a chance to retry.
 # recoverable_node_timeout = node_timeout
@@ -327,6 +327,12 @@ user_test5_tester5 = testing5 service
 # auth_uri = http://keystonehost:5000
 # auth_url = http://keystonehost:35357
 # auth_plugin = password
+# The following credentials must match the Keystone credentials for the Swift
+# service and may need to be changed to match your Keystone configuration. The
+# example values shown here assume a user named 'swift' with admin role on a
+# project named 'service', both being in the Keystone domain with id 'default'.
+# Refer to the keystonemiddleware documentation link above [1] for other
+# examples.
 # project_domain_id = default
 # user_domain_id = default
 # project_name = service

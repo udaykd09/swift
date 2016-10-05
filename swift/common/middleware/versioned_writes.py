@@ -71,10 +71,9 @@ as described above.
 To restore a previous version of an object, find the desired version in the
 archive container then issue a ``COPY`` with a ``Destination`` header
 indicating the original location. This will archive the current version similar
-to a ``PUT`` over the versioned object. If the the client additionally wishes
-to permanently delete what was the current version, it must find the
-newly-created archive in the archive container and issue a separate ``DELETE``
-to it.
+to a ``PUT`` over the versioned object. If the client additionally wishes to
+permanently delete what was the current version, it must find the newly-created
+archive in the archive container and issue a separate ``DELETE`` to it.
 
 --------------------------------------------------
 How to Enable Object Versioning in a Swift Cluster
@@ -461,7 +460,7 @@ class VersionedWritesContext(WSGIContext):
     def handle_obj_versions_put(self, req, versions_cont, api_version,
                                 account_name, object_name):
         """
-        Copy current version of object to versions_container before proceding
+        Copy current version of object to versions_container before proceeding
         with original request.
 
         :param req: original request.
@@ -486,7 +485,7 @@ class VersionedWritesContext(WSGIContext):
         Handle DELETE requests when in history mode.
 
         Copy current version of object to versions_container and write a
-        delete marker before proceding with original request.
+        delete marker before proceeding with original request.
 
         :param req: original request.
         :param versions_cont: container where previous versions of the object
