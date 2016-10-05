@@ -3059,7 +3059,6 @@ class ECDiskFileManager(BaseDiskFileManager):
 
 
 class EncryptionDiskFileReader(BaseDiskFileReader):
-    
     def __iter__(self):
         """Returns an iterator over the data file with decryption."""
         try:
@@ -3096,7 +3095,15 @@ class EncryptionDiskFileReader(BaseDiskFileReader):
         
 
 class EncryptionDiskFileWriter(BaseDiskFileWriter):
-    
+    def put(self, metadata):
+        """
+        Finalize writing the file on disk.
+
+        :param metadata: dictionary of metadata to be associated with the
+                         object
+        """
+        super(DiskFileWriter, self)._put(metadata, True)
+
     def write(self, chunk):
         encryption_context = self.manager.get_encryption_context()
         crypto_driver = self.manager.get_crypto_driver()
@@ -3110,9 +3117,12 @@ class EncryptionDiskFileWriter(BaseDiskFileWriter):
 
 
 class EncryptionDiskFile(BaseDiskFile):
-    
     reader_cls = EncryptionDiskFileReader
     writer_cls = EncryptionDiskFileWriter
+    
+    def _get_ondisk_files(self, files):
+        self._ondisk_info = self.manager.get_ondisk_files(files, self._datadir)
+        return self._ondisk_info
     
     def reader(self, keep_cache=False,
                _quarantine_hook=lambda m: None):
@@ -3142,7 +3152,7 @@ class EncryptionDiskFile(BaseDiskFile):
         # the file pointer.
         self._fp = None
         return dr
-    
+
     # FIXME: Uday - Override the verification at GET 
     # as encrypted size and metadata size do not match
     def _verify_data_file(self, data_file, fp):
@@ -3157,8 +3167,8 @@ class EncryptionDiskFile(BaseDiskFile):
 
 @DiskFileRouter.register(ENCRYPTION_POLICY)
 class EncyptionDiskFileManager(BaseDiskFileManager):
-    
     diskfile_cls = EncryptionDiskFile
+
     def __init__(self, *args, **kwargs):
         super(EncyptionDiskFileManager, self).__init__(*args, **kwargs)
         crypto_driver = conf.get('crypto_driver',
@@ -3168,10 +3178,64 @@ class EncyptionDiskFileManager(BaseDiskFileManager):
         self.origin_disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.disk_chunk_size = self.crypto_driver.encrypted_chunk_size(
             encryption_context, self.origin_disk_chunk_size)
-        
+
+    def _process_ondisk_files(self, exts, results, **kwargs):
+        """
+        Implement replication policy specific handling of .data files.
+
+        :param exts: dict of lists of file info, keyed by extension
+        :param results: a dict that may be updated with results
+        """
+        if exts.get('.data'):
+            for ext in exts.keys():
+                if ext == '.data':
+                    # older .data's are obsolete
+                    exts[ext], obsolete = self._split_gte_timestamp(
+                        exts[ext], exts['.data'][0]['timestamp'])
+                else:
+                    # other files at same or older timestamp as most recent
+                    # data are obsolete
+                    exts[ext], obsolete = self._split_gt_timestamp(
+                        exts[ext], exts['.data'][0]['timestamp'])
+                results.setdefault('obsolete', []).extend(obsolete)
+
+            # set results
+            results['data_info'] = exts['.data'][0]
+
+        # .meta files *may* be ready for reclaim if there is no data
+        if exts.get('.meta') and not exts.get('.data'):
+            results.setdefault('possible_reclaim', []).extend(
+                exts.get('.meta'))
+
+    def _update_suffix_hashes(self, hashes, ondisk_info):
+        """
+        Applies policy specific updates to the given dict of md5 hashes for
+        the given ondisk_info.
+
+        :param hashes: a dict of md5 hashes to be updated
+        :param ondisk_info: a dict describing the state of ondisk files, as
+                            returned by get_ondisk_files
+        """
+        if 'data_info' in ondisk_info:
+            file_info = ondisk_info['data_info']
+            hashes[None].update(
+                file_info['timestamp'].internal + file_info['ext'])
+
+    def _hash_suffix(self, path, reclaim_age):
+        """
+        Performs reclamation and returns an md5 of all (remaining) files.
+
+        :param path: full path to directory
+        :param reclaim_age: age in seconds at which to remove tombstones
+        :raises PathNotDir: if given path is not a valid directory
+        :raises OSError: for non-ENOTDIR errors
+        :returns: md5 of files in suffix
+        """
+        hashes = self._hash_suffix_dir(path, reclaim_age)
+        return hashes[None].hexdigest()
+
     def get_encryption_context(self):
         return self.encryption_context
     
     def get_crypto_driver(self):
         return self.crypto_driver
-    

@@ -2649,5 +2649,91 @@ class ECObjectController(BaseObjectController):
 
 @ObjectControllerRouter.register(ENCRYPTION_POLICY)
 class EncryptionObjectController(BaseStoragePolicy):
-    
-    pass
+    def _have_adequate_responses(
+            self, statuses, min_responses, conditional_func):
+        """
+        Given a list of statuses from several requests, determine if a
+        satisfactory number of nodes have responded with 1xx or 2xx statuses to
+        deem the transaction for a successful response to the client.
+
+        :param statuses: list of statuses returned so far
+        :param min_responses: minimal pass criterion for number of successes
+        :param conditional_func: a callable function to check http status code
+        :returns: True or False, depending on current number of successes
+        """
+        if sum(1 for s in statuses if (conditional_func(s))) >= min_responses:
+            return True
+        return False
+
+    def _have_adequate_successes(self, statuses, min_responses):
+        """
+        Partial method of _have_adequate_responses for 2xx
+        """
+        return self._have_adequate_responses(
+            statuses, min_responses, is_success)
+
+    def _have_adequate_put_responses(self, statuses, num_nodes, min_responses):
+        return self._have_adequate_successes(statuses, min_responses)
+
+    def _make_putter(self, node, part, req, headers):
+        if req.environ.get('swift.callback.update_footers'):
+            putter = MIMEPutter.connect(
+                node, part, req.swift_entity_path, headers,
+                conn_timeout=self.app.conn_timeout,
+                node_timeout=self.app.node_timeout,
+                logger=self.app.logger,
+                need_multiphase=False)
+        else:
+            putter = Putter.connect(
+                node, part, req.swift_entity_path, headers,
+                conn_timeout=self.app.conn_timeout,
+                node_timeout=self.app.node_timeout,
+                logger=self.app.logger,
+                chunked=req.is_chunked)
+        return putter
+
+    def _store_object(self, req, data_source, nodes, partition,
+                      outgoing_headers):
+        """
+        Store a replicated object.
+
+        This method is responsible for establishing connection
+        with storage nodes and sending object to each one of those
+        nodes. After sending the data, the "best" response will be
+        returned based on statuses from all connections
+        """
+        policy_index = req.headers.get('X-Backend-Storage-Policy-Index')
+        policy = POLICIES.get_by_index(policy_index)
+        if not nodes:
+            return HTTPNotFound()
+
+        putters = self._get_put_connections(
+            req, nodes, partition, outgoing_headers, policy)
+        min_conns = quorum_size(len(nodes))
+        try:
+            # check that a minimum number of connections were established and
+            # meet all the correct conditions set in the request
+            self._check_failure_put_connections(putters, req, min_conns)
+
+            # transfer data
+            self._transfer_data(req, data_source, putters, nodes)
+
+            # get responses
+            statuses, reasons, bodies, etags = \
+                self._get_put_responses(req, putters, len(nodes))
+        except HTTPException as resp:
+            return resp
+        finally:
+            for putter in putters:
+                putter.close()
+
+        if len(etags) > 1:
+            self.app.logger.error(
+                _('Object servers returned %s mismatched etags'), len(etags))
+            return HTTPServerError(request=req)
+        etag = etags.pop() if len(etags) else None
+        resp = self.best_response(req, statuses, reasons, bodies,
+                                  _('Object PUT'), etag=etag)
+        resp.last_modified = math.ceil(
+            float(Timestamp(req.headers['X-Timestamp'])))
+        return resp

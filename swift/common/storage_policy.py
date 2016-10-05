@@ -599,8 +599,10 @@ class ECStoragePolicy(BaseStoragePolicy):
 
 @BaseStoragePolicy.register(ENCRYPTION_POLICY)
 class EncryptionStoragePolicy(BaseStoragePolicy):
-    
-    pass
+
+    @property
+    def quorum(self):
+       return quorum_size(1)
 
 
 class StoragePolicyCollection(object):
