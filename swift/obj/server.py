@@ -805,7 +805,6 @@ class ObjectController(BaseStorageServer):
                     'X-Timestamp': request.timestamp.internal,
                     'Content-Type': request.headers['content-type'],
                     'ETag': etag,
-                    'Original-ETag': etag_orig,
                     'Content-Length': str(upload_size),
                 }
                 metadata.update(val for val in request.headers.items()
@@ -867,7 +866,6 @@ class ObjectController(BaseStorageServer):
             'x-size': metadata['Content-Length'],
             'x-content-type': metadata['Content-Type'],
             'x-timestamp': metadata['X-Timestamp'],
-            'x-original-etag': metadata['Original-ETag'],
 	    'x-etag': metadata['ETag']})
         # apply any container update header overrides sent with request
         self._check_container_override(update_headers, request.headers,
@@ -912,7 +910,7 @@ class ObjectController(BaseStorageServer):
                             is_object_transient_sysmeta(key) or
                             key.lower() in self.allowed_headers):
                         response.headers[key] = value
-                response.etag = metadata['Original-ETag']
+                response.etag = metadata['ETag']
                 response.last_modified = math.ceil(float(file_x_ts))
                 response.content_length = obj_size
                 try:
@@ -974,7 +972,7 @@ class ObjectController(BaseStorageServer):
                     is_object_transient_sysmeta(key) or
                     key.lower() in self.allowed_headers):
                 response.headers[key] = value
-        response.etag = metadata['Original-ETag']
+        response.etag = metadata['ETag']
         ts = Timestamp(metadata['X-Timestamp'])
         response.last_modified = math.ceil(float(ts))
         # Needed for container sync feature
