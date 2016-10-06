@@ -778,7 +778,6 @@ class ObjectController(BaseStorageServer):
                             return HTTPRequestTimeout(request=request)
                         etag.update(chunk)
                         upload_size = writer.write(chunk)
-                        encryted_size = disk_file.get_encrypted_length()
                         elapsed_time += time.time() - start_time
                 except ChunkReadError:
                     return HTTPClientDisconnect(request=request)
@@ -805,10 +804,9 @@ class ObjectController(BaseStorageServer):
                 metadata = {
                     'X-Timestamp': request.timestamp.internal,
                     'Content-Type': request.headers['content-type'],
-                    'Etag': etag,
+                    'ETag': etag,
                     'Original-ETag': etag_orig,
                     'Content-Length': str(upload_size),
-                    'Encrypted-Length': str(encrypted_size)
                 }
                 metadata.update(val for val in request.headers.items()
                                 if (is_sys_or_user_meta('object', val[0]) or
@@ -869,7 +867,8 @@ class ObjectController(BaseStorageServer):
             'x-size': metadata['Content-Length'],
             'x-content-type': metadata['Content-Type'],
             'x-timestamp': metadata['X-Timestamp'],
-            'x-etag': metadata['Original-ETag']})
+            'x-original-etag': metadata['Original-ETag'],
+	    'x-etag': metadata['ETag']})
         # apply any container update header overrides sent with request
         self._check_container_override(update_headers, request.headers,
                                        footer_meta)
@@ -975,7 +974,7 @@ class ObjectController(BaseStorageServer):
                     is_object_transient_sysmeta(key) or
                     key.lower() in self.allowed_headers):
                 response.headers[key] = value
-        response.etag = metadata['ETag']
+        response.etag = metadata['Original-ETag']
         ts = Timestamp(metadata['X-Timestamp'])
         response.last_modified = math.ceil(float(ts))
         # Needed for container sync feature

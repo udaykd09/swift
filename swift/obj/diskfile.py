@@ -3167,9 +3167,6 @@ class EncryptionDiskFile(BaseDiskFile):
     
     def set_encrypted_length(self, encrypted_length):
         self._encrypted_size = encrypted_length
-    
-    def get_encrypted_length(self):
-        return self._encrypted_size
         
 
 @DiskFileRouter.register(ENCRYPTION_POLICY)

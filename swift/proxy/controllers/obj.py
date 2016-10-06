@@ -2648,7 +2648,7 @@ class ECObjectController(BaseObjectController):
 
 
 @ObjectControllerRouter.register(ENCRYPTION_POLICY)
-class EncryptionObjectController(BaseStoragePolicy):
+class EncryptionObjectController(BaseObjectController):
     def _have_adequate_responses(
             self, statuses, min_responses, conditional_func):
         """

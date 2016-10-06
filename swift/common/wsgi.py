@@ -62,10 +62,13 @@ class NamedConfigLoader(loadwsgi.ConfigLoader):
     """
 
     def get_context(self, object_type, name=None, global_conf=None):
-        context = super(NamedConfigLoader, self).get_context(
+        print("@here", "{},{},{}".format(object_type, name, global_conf))
+	context = super(NamedConfigLoader, self).get_context(
             object_type, name=name, global_conf=global_conf)
-        context.name = name
-        return context
+        print("@@")
+	context.name = name
+        print("@@")
+	return context
 
 
 loadwsgi.ConfigLoader = NamedConfigLoader
@@ -131,7 +134,7 @@ def wrap_conf_type(f):
     just a string) before passing it through to the paste.deploy function.
     """
     def wrapper(conf_path, *args, **kwargs):
-        if os.path.isdir(conf_path):
+	if os.path.isdir(conf_path):
             conf_type = 'config_dir'
         else:
             conf_type = 'config'
