@@ -62,12 +62,9 @@ class NamedConfigLoader(loadwsgi.ConfigLoader):
     """
 
     def get_context(self, object_type, name=None, global_conf=None):
-        print("@here", "{},{},{}".format(object_type, name, global_conf))
 	context = super(NamedConfigLoader, self).get_context(
             object_type, name=name, global_conf=global_conf)
-        print("@@")
 	context.name = name
-        print("@@")
 	return context
 
 
