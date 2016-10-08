@@ -3109,7 +3109,7 @@ class EncryptionDiskFileWriter(BaseDiskFileWriter):
         :param metadata: dictionary of metadata to be associated with the
                          object
         """
-        super(DiskFileWriter, self)._put(metadata, True)
+        super(EncryptionDiskFileWriter, self)._put(metadata, True)
 
     def write(self, chunk):
         encryption_context = self.manager.get_encryption_context()
