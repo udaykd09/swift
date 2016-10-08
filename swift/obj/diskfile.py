@@ -3117,7 +3117,7 @@ class EncryptionDiskFileWriter(BaseDiskFileWriter):
         orig_size = len(chunk)
         # Replace the original chunk with encrypted chunk
         chunk = crypto_driver.encrypt(encryption_context, chunk)
-        self.manager.set_enryption_length(len(chunk))
+        self.manager.set_encryption_length(len(chunk))
         uploaded_size = super(EncryptionDiskFileWriter, self).write(chunk)
         # Write the encrypted chunk
         return orig_size
@@ -3165,9 +3165,6 @@ class EncryptionDiskFile(BaseDiskFile):
     def _verify_data_file(self, data_file, fp):
         pass
     
-    def set_encrypted_length(self, encrypted_length):
-        self._encrypted_size = encrypted_length
-        
 
 @DiskFileRouter.register(ENCRYPTION_POLICY)
 class EncyptionDiskFileManager(BaseDiskFileManager):
@@ -3244,3 +3241,6 @@ class EncyptionDiskFileManager(BaseDiskFileManager):
     
     def get_crypto_driver(self):
         return self.crypto_driver
+
+    def set_encryption_length(self, encrypted_length):
+        self._encrypted_length = encrypted_length
