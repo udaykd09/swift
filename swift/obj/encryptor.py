@@ -30,8 +30,8 @@ class CryptoDriver(object):
                         store encryption keys
     """
 
-    def __init__(self, conf):
-        self.conf = conf
+    def __init__(self):
+        self.conf = ""
 
     def encrypted_chunk_size(self, context, original_size):
         """
@@ -128,14 +128,14 @@ class M2CryptoDriver(CryptoDriver):
     default_iv = '3141527182810345'
     default_key = '893C2405D7B3C4C2FB3BF4713B2427CC'
 
-    def __init__(self, conf):
-        CryptoDriver.__init__(self, conf)
-        self.protocol = conf.get('crypto_protocol', self.default_protocol)
+    def __init__(self):
+        #CryptoDriver.__init__(self, conf)
+        self.protocol = self.default_protocol
         #TODO(uday): Now supported only aes_128_cbc protocol.
-        if self.protocol != self.default_protocol:
-            raise ValueError("M2CryptoDriver support only %r not %r "
-                             "protocol." %
-                             (self.default_protocol, self.protocol))
+        #if self.protocol != self.default_protocol:
+        #    raise ValueError("M2CryptoDriver support only %r not %r "
+        #                     "protocol." %
+        #                     (self.default_protocol, self.protocol))
 
     def encrypt(self, context, chunk):
         """
