@@ -70,7 +70,7 @@ from swift.common.swob import multi_range_iterator
 from swift.common.storage_policy import (
     get_policy_string, split_policy_string, PolicyError, POLICIES,
     REPL_POLICY, EC_POLICY, ENCRYPTION_POLICY)
-from swift.obj.encryptor import CryptoDriver
+from swift.obj.encryptor import M2CryptoDriver
 from functools import partial
 
 
@@ -3117,7 +3117,7 @@ class EncryptionDiskFileWriter(BaseDiskFileWriter):
         orig_size = len(chunk)
         # Replace the original chunk with encrypted chunk
         chunk = crypto_driver.encrypt(encryption_context, chunk)
-        self.manager.set_enryption_length(len(chunk))
+        self.manager.set_encryption_length(len(chunk))
         uploaded_size = super(EncryptionDiskFileWriter, self).write(chunk)
         # Write the encrypted chunk
         return orig_size
@@ -3165,23 +3165,21 @@ class EncryptionDiskFile(BaseDiskFile):
     def _verify_data_file(self, data_file, fp):
         pass
     
-    def set_encrypted_length(self, encrypted_length):
-        self._encrypted_size = encrypted_length
-        
 
 @DiskFileRouter.register(ENCRYPTION_POLICY)
 class EncyptionDiskFileManager(BaseDiskFileManager):
     diskfile_cls = EncryptionDiskFile
 
-    def __init__(self, *args, **kwargs):
-        super(EncyptionDiskFileManager, self).__init__(*args, **kwargs)
-        crypto_driver = conf.get('crypto_driver',
-                                 'swift.obj.encryptor.DummyDriver')
-        self.crypto_driver = create_instance(crypto_driver, CryptoDriver, conf)
-        self.encryption_context = self.crypto_driver.encryption_context()
+    def __init__(self, conf, logger):
+        super(EncyptionDiskFileManager, self).__init__(conf, logger)
+        #crypto_driver = 'swift.obj.encryptor.M2CryptoDriver'
+	#self.crypto_driver = create_instance(crypto_driver, CryptoDriver, conf)
+        self.crypto_driver = M2CryptoDriver()
+	self.crypto_driver.__init__()
+	self.encryption_context = self.crypto_driver.encryption_context()
         self.origin_disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
         self.disk_chunk_size = self.crypto_driver.encrypted_chunk_size(
-            encryption_context, self.origin_disk_chunk_size)
+            self.encryption_context, self.origin_disk_chunk_size)
 
     def _process_ondisk_files(self, exts, results, **kwargs):
         """
@@ -3243,3 +3241,6 @@ class EncyptionDiskFileManager(BaseDiskFileManager):
     
     def get_crypto_driver(self):
         return self.crypto_driver
+
+    def set_encryption_length(self, encrypted_length):
+        self._encrypted_length = encrypted_length
