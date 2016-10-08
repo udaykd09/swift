@@ -120,16 +120,6 @@ class ObjectController(BaseStorageServer):
         """
         super(ObjectController, self).__init__(conf)
         self.logger = logger or get_logger(conf, log_route='object-server')
-        
-        """ SSDS : Encryption Variables 
-        crypto_driver = conf.get('crypto_driver',
-                                 'swift.obj.encryptor.DummyDriver')
-        self.crypto_driver = create_instance(crypto_driver, CryptoDriver, conf)
-        encryption_context = self.crypto_driver.encryption_context()
-        self.origin_disk_chunk_size = int(conf.get('disk_chunk_size', 65536))
-        self.disk_chunk_size = self.crypto_driver.encrypted_chunk_size(
-            encryption_context, self.origin_disk_chunk_size)
-        """
         self.node_timeout = float(conf.get('node_timeout', 3))
         self.container_update_timeout = float(
             conf.get('container_update_timeout', 1))
