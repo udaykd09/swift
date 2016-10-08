@@ -2649,6 +2649,15 @@ class ECObjectController(BaseObjectController):
 
 @ObjectControllerRouter.register(ENCRYPTION_POLICY)
 class EncryptionObjectController(BaseObjectController):
+
+    def _get_or_head_response(self, req, node_iter, partition, policy):
+        concurrency = self.app.get_object_ring(policy.idx).replica_count \
+            if self.app.concurrent_gets else 1
+        resp = self.GETorHEAD_base(
+            req, _('Object'), node_iter, partition,
+            req.swift_entity_path, concurrency)
+        return resp
+
     def _have_adequate_responses(
             self, statuses, min_responses, conditional_func):
         """
@@ -2691,6 +2700,87 @@ class EncryptionObjectController(BaseObjectController):
                 logger=self.app.logger,
                 chunked=req.is_chunked)
         return putter
+
+    def _transfer_data(self, req, data_source, putters, nodes):
+        """
+        Transfer data for a replicated object.
+
+        This method was added in the PUT method extraction change
+        """
+        bytes_transferred = 0
+
+        def send_chunk(chunk):
+            for putter in list(putters):
+                if not putter.failed:
+                    putter.send_chunk(chunk)
+                else:
+                    putter.close()
+                    putters.remove(putter)
+            self._check_min_conn(
+                req, putters, min_conns,
+                msg=_('Object PUT exceptions during send, '
+                      '%(conns)s/%(nodes)s required connections'))
+
+        min_conns = quorum_size(len(nodes))
+        try:
+            with ContextPool(len(nodes)) as pool:
+                for putter in putters:
+                    putter.spawn_sender_greenthread(
+                        pool, self.app.put_queue_depth, self.app.node_timeout,
+                        self.app.exception_occurred)
+                while True:
+                    with ChunkReadTimeout(self.app.client_timeout):
+                        try:
+                            chunk = next(data_source)
+                        except StopIteration:
+                            break
+                    bytes_transferred += len(chunk)
+                    if bytes_transferred > constraints.MAX_FILE_SIZE:
+                        raise HTTPRequestEntityTooLarge(request=req)
+
+                    send_chunk(chunk)
+
+                if req.content_length and (
+                        bytes_transferred < req.content_length):
+                    req.client_disconnect = True
+                    self.app.logger.warning(
+                        _('Client disconnected without sending enough data'))
+                    self.app.logger.increment('client_disconnects')
+                    raise HTTPClientDisconnect(request=req)
+
+                trail_md = self._get_footers(req)
+                for putter in putters:
+                    # send any footers set by middleware
+                    putter.end_of_object_data(footer_metadata=trail_md)
+
+                for putter in putters:
+                    putter.wait()
+                self._check_min_conn(
+                    req, [p for p in putters if not p.failed], min_conns,
+                    msg=_('Object PUT exceptions after last send, '
+                          '%(conns)s/%(nodes)s required connections'))
+        except ChunkReadTimeout as err:
+            self.app.logger.warning(
+                _('ERROR Client read timeout (%ss)'), err.seconds)
+            self.app.logger.increment('client_timeouts')
+            raise HTTPRequestTimeout(request=req)
+        except HTTPException:
+            raise
+        except ChunkReadError:
+            req.client_disconnect = True
+            self.app.logger.warning(
+                _('Client disconnected without sending last chunk'))
+            self.app.logger.increment('client_disconnects')
+            raise HTTPClientDisconnect(request=req)
+        except Timeout:
+            self.app.logger.exception(
+                _('ERROR Exception causing client disconnect'))
+            raise HTTPClientDisconnect(request=req)
+        except Exception:
+            self.app.logger.exception(
+                _('ERROR Exception transferring data to object servers %s'),
+                {'path': req.path})
+            raise HTTPInternalServerError(request=req)
 
     def _store_object(self, req, data_source, nodes, partition,
                       outgoing_headers):
