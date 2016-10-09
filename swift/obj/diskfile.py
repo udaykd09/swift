@@ -3151,7 +3151,7 @@ class EncryptionDiskFile(BaseDiskFile):
         """
         dr = self.reader_cls(
             self._fp, self._data_file, int(self._metadata['Content-Length']),
-            self._metadata['Original-ETag'], self._disk_chunk_size,
+            self._metadata['ETag'], self._disk_chunk_size,
             self._manager.keep_cache_size, self._device_path, self._logger,
             use_splice=self._use_splice, quarantine_hook=_quarantine_hook,
             pipe_size=self._pipe_size, diskfile=self, keep_cache=keep_cache)
