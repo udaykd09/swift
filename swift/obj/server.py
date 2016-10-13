@@ -789,6 +789,7 @@ class ObjectController(BaseStorageServer):
                                 request.headers.get('etag', '')).lower()
                 etag = etag.hexdigest()
                 etag_orig = etag_orig.hexdigest()
+                encrypted_length = disk_file._encrypted_length
                 if request_etag and request_etag != etag_orig:
                     return HTTPUnprocessableEntity(request=request)
                 metadata = {
@@ -796,6 +797,7 @@ class ObjectController(BaseStorageServer):
                     'Content-Type': request.headers['content-type'],
                     'ETag': etag,
                     'Content-Length': str(upload_size),
+                    'Encrypted-Length': str(encrypted_length),
                 }
                 metadata.update(val for val in request.headers.items()
                                 if (is_sys_or_user_meta('object', val[0]) or
