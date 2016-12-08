@@ -3105,6 +3105,10 @@ class EncryptionDiskFileReader(BaseDiskFileReader):
             fp.close()
 
 class EncryptionDiskFileWriter(BaseDiskFileWriter):
+    def __init__(self, name, datadir, fd, tmppath, bytes_per_sync, diskfile):
+        super(EncryptionDiskFileWriter, self).__init__(name, datadir, fd, tmppath, bytes_per_sync, diskfile)
+        self._orig_size = 0
+
     def put(self, metadata):
         """
         Finalize writing the file on disk.
@@ -3117,12 +3121,12 @@ class EncryptionDiskFileWriter(BaseDiskFileWriter):
     def write(self, chunk):
         encryption_context = self.manager.get_encryption_context()
         crypto_driver = self.manager.get_crypto_driver()
-        orig_size = len(chunk)
+        self._orig_size += len(chunk)
         # Replace the original chunk with encrypted chunk
         chunk = crypto_driver.encrypt(encryption_context, chunk)
         uploaded_size = super(EncryptionDiskFileWriter, self).write(chunk)
         # Write the encrypted chunk
-        return orig_size
+        return self._orig_size
 
 
 class EncryptionDiskFile(BaseDiskFile):
@@ -3169,11 +3173,11 @@ class EncryptionDiskFile(BaseDiskFile):
 
 
 @DiskFileRouter.register(ENCRYPTION_POLICY)
-class EncyptionDiskFileManager(BaseDiskFileManager):
+class EncryptionDiskFileManager(BaseDiskFileManager):
     diskfile_cls = EncryptionDiskFile
 
     def __init__(self, conf, logger):
-        super(EncyptionDiskFileManager, self).__init__(conf, logger)
+        super(EncryptionDiskFileManager, self).__init__(conf, logger)
         #crypto_driver = 'swift.obj.encryptor.M2CryptoDriver'
 	#self.crypto_driver = create_instance(crypto_driver, CryptoDriver, conf)
         self.crypto_driver = M2CryptoDriver()
